@@ -1,11 +1,11 @@
-# Instalación y configuración SIEM (ELK) + Agente (nginx-filebeat)
+# Instalación y configuración SIEM (ELK) con Nginx-filebeat
 
 **Actividad:** 2.b.02 — Implementación y Configuración de SIEM  
 **Objetivo:** Dejar montado un stack ELK con un agente nginx+Filebeat que recoja logs y los deje listos en Kibana para explotar el caso de uso de fuerza bruta SSH.
 
 ## 1. Escenario y arquitectura
 
-Este laboratorio se basa en dos contenedores Docker conectados a una red bridge propia.
+Este laboratorio se basa en dos contenedores Docker conectados a una red bridge propia, más un docker Kali para hacer de atacante.
 
 Contenedor SOC (SIEM): `sebp/elk:7.16.3`  
 Servicios expuestos que vamos a tener: Kibana (5601), Elasticsearch (9200) y Logstash con input Beats (5044).
@@ -22,26 +22,31 @@ Tenemos que poder provocar alertas en elk por medio de pings y posteriormente us
 
 ### 2.1 Creación de la red Docker
 
-```bash
+```
 docker network create -d bridge --subnet 172.20.0.0/24 elk-red
 ```
+<img width="824" height="91" alt="Captura de pantalla 2026-02-18 095026" src="https://github.com/user-attachments/assets/613bef4a-16ff-4737-9892-2986f70ee706" />
 
 ### 2.2 Descarga de la imagen
 
+
 Se trabaja con la versión 7.16.3 para mayor compatibilidad entre agente y servidor.
 
-```bash
+```
 docker pull sebp/elk:7.16.3
 ```
+<img width="945" height="238" alt="Captura de pantalla 2026-02-18 091127" src="https://github.com/user-attachments/assets/40e1ed43-3064-4d71-bc93-5b055fb3713b" />
+
 
 ### 2.3 Puesta en marcha del contenedor
 
 Se levanta el contenedor dentro de la red `elk-red` con IP fija para que el resto de servicios puedan referenciarlo sin sorpresas.
 
-```bash
+```
 docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 \
   -it --name elk --net elk-red --ip 172.20.0.10 -d sebp/elk:7.16.3
 ```
+<img width="877" height="182" alt="2026-02-19 20_01_49-Parsec" src="https://github.com/user-attachments/assets/bc5d1338-634b-45b4-9b02-586455e25062" />
 
 
 
@@ -49,37 +54,34 @@ docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 \
 
 Kibana:
 
-```bash
+```
 curl -i http://localhost:5601/
 ```
+<img width="871" height="324" alt="2026-02-20 23_30_02-Parsec" src="https://github.com/user-attachments/assets/c2f8fb02-040a-4044-a05b-7d5f8036a19a" />
 
 Elasticsearch:
 
-```bash
+```
 curl -s http://localhost:9200/
 ```
 
-
-
-## 3. Configuración del agente (nginx-filebeat)
-
+## 3. Configuración del agente
 
 ### 3.2 Build y arranque del agente
 
 Desde el directorio `nginx-filebeat/`:
+<img width="947" height="536" alt="Captura de pantalla 2026-02-18 121211" src="https://github.com/user-attachments/assets/03a3f74a-9ebf-4b0d-9185-3f7d2fada70c" />
 
-```bash
-# Construir imagen personalizada
+```
 docker build -t nginx-filebeat .
-
-# Arrancar el agente
 docker run -d --name filebeat --net elk-red -p 8080:80 nginx-filebeat
 ```
 
 ### 3.3 Configuración de `filebeat.yml`
 
-El agente se deja en modo sencillo: recoge logs de Nginx y los envía a Logstash sin TLS (en esta fase nos interesa funcionalidad, no endurecer aún el canal).
+Queremos que el agente recoga los logs, sin más.
 
+<img width="898" height="687" alt="2026-02-19 20_32_25-Parsec" src="https://github.com/user-attachments/assets/698b411c-a7ff-47c1-af3e-403546ba7b22" />
 
 
 ## 4. Validación de la ingesta
@@ -88,433 +90,117 @@ El agente se deja en modo sencillo: recoge logs de Nginx y los envía a Logstash
 
 Para verificar conectividad y configuración hacia ELK:
 
-```bash
+```
 filebeat test output -e
 ```
+<img width="947" height="536" alt="Captura de pantalla 2026-02-18 121211" src="https://github.com/user-attachments/assets/d6b8e777-382d-4df2-8f7c-abebffcd0688" />
+Este error se debía a que ELK no estaba arrancado. Se eencendió y pasó a OK
 
 
 
 Y para comprobar que el YAML no tiene errores de sintaxis:
 
-```bash
+```
 filebeat test config -e
 ```
 
+<img width="872" height="237" alt="2026-02-19 20_34_36-Parsec" src="https://github.com/user-attachments/assets/4a0008a6-d3dc-4235-ac7c-418a164de075" />
+
+Con la configuración en OK también, seguimos
 
 
 ### 4.2 Índices en Elasticsearch
 
 Se valida que se estén generando índices (por ejemplo los de Filebeat) en Elasticsearch:
 
-```bash
+```
 curl -s http://localhost:9200/_cat/indices?v
 ```
 
+<img width="885" height="464" alt="2026-02-19 20_36_22-Parsec" src="https://github.com/user-attachments/assets/db625cc9-1748-45b9-849c-019945b1f589" />
 
 
-## Errores de TLS y compatibilidad de versiones
+## 5. Kibana
 
-### Problema detectado
+Para trabajar los datos en Kibana seguimos accediendo en nuestro navegador a `http://localhost:5601`:
 
-En Logstash aparecían errores de handshake TLS (`bad_certificate`) y Filebeat no terminaba de enviar.  
-Además, en `filebeat test output -e` aparecieron mensajes del tipo `x509: certificate has expired or is not yet valid` al intentar negociar TLS.
+Y seguimos este orden
+<img width="1843" height="913" alt="2026-02-19 20_39_02-Parsec" src="https://github.com/user-attachments/assets/cd68f2b2-7ff0-4640-893d-5a23ae6d6454" />
 
-La combinación que fallaba era: contenedor `nginx-filebeat` con Filebeat 8.14.3 hablando con un ELK 7.16.3. A esto se suma que la configuración TLS no estaba cerrada (CA, certificados, etc.), por lo que cualquier verificación extra rompía el canal.
-
-### Enfoque y solución
-
-Primero se alinean versiones: Filebeat pasa a 7.16.3 para ir en paralelo con ELK 7.16.3.  
-Segundo, se simplifica: se desactiva SSL en el output hacia Logstash (`ssl.enabled: false`) mientras sea solo una PoC.  
-Por último, se ajusta el `filebeat.yml` a la sintaxis correcta para la rama 7.x (`filebeat.inputs`, `output.logstash`, etc.).
-
-### Configuración final de `filebeat.yml`
-
-```yaml
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/log/nginx/*.log
-    fields:
-      app: nginx
-    fields_under_root: true
-
-setup.template.enabled: false
-setup.ilm.enabled: false
-
-output.logstash:
-  hosts: ["172.20.0.10:5044"]
-  ssl.enabled: false
-
-setup.kibana:
-  host: "elk:5601"
-
-logging.level: info
-```
-
-## 5. Visualización en Kibana
-
-Para trabajar los datos en Kibana se siguen estos pasos sobre `http://localhost:5601`:
-
-1. Acceder a Kibana.  
-2. Ir a Stack Management.  
-3. Entrar en Index Patterns.  
-4. Crear un nuevo patrón:  
+Kibana >  Stack Management > Index Patterns > Crear un nuevo patrón:  
    - Index pattern: `filebeat-*`  
    - Time field: `@timestamp` (si está presente en los documentos).  
 5. Ir a Discover y seleccionar el patrón creado.
 
   
+Pero aquí vemos que no se generan eventos nuevos
 
+En el contenedor se comprobó que sí se estaban rellenando en `/var/log/nginx/access.log` al lanzar peticiones con `curl http://localhost:8080/`, pero no se nos mostraba en `filebeat-*`.
 
-### Problema: no llegaban eventos nuevos
+Resultó que, por alguna razón, filebeat estaba detenido, por lo que lo reiniciamos:
 
-En Discover no aparecían logs nuevos a pesar de refrescar.  
-En el contenedor se comprobó que Nginx sí estaba generando entradas en `/var/log/nginx/access.log` al lanzar peticiones con `curl http://localhost:8080/`, pero esos eventos no terminaban en el índice `filebeat-*`.
+Antes, hubo que instalar systemctl, pues el contenedor no lo tenía instalado, y nos hacía falta para arrancar el servicio.
 
-El root cause fue sencillo: el servicio de Filebeat estaba parado (`Active: inactive (dead)` en `systemctl status filebeat`), así que no se enviaba nada.
+```
+apt install systemctl
+```
+Con systemctl instalado, seguimos
 
-Se solucionó arrancando el servicio:
-
-```bash
+```
 systemctl start filebeat
 systemctl status filebeat --no-pager
 ```
+<img width="1810" height="973" alt="2026-02-20 18_16_38-" src="https://github.com/user-attachments/assets/54c59e2e-e50f-4c7a-ab6e-b2449585b99a" />
 
 ## 6. Instalación de Snort 2.9.20 (IDS)
 
-### 6.1 Objetivo
+Para instalar snort en nuestro contenedor, basta con hacer:
 
-Compilar e instalar Snort 2.9.20 desde fuente dentro del contenedor para poder detectar tráfico con reglas propias (por ejemplo en `local.rules`) y generar alertas.
+```
+apt install snort
+```
+<img width="895" height="516" alt="2026-02-20 18_40_15-Parsec" src="https://github.com/user-attachments/assets/c7dd3814-032e-4ad2-9f41-9c84a5486f7b" />
 
-### 6.2 Paquetes previos
+Snort nos pregunta en qué puerto debería escuchar, así que le decimos: eth0
 
-Se instalan herramientas básicas de compilación y dependencias habituales:
+Y luego nos pide el rango de direcciones:
 
-```bash
-apt-get update
-apt-get install -y build-essential bison flex libpcap-dev zlib1g-dev \
-  libdumbnet-dev pkg-config
+<img width="900" height="277" alt="2026-02-20 18_40_28-Parsec" src="https://github.com/user-attachments/assets/dbbd4fde-5f7a-4d8a-b851-5a6ccca1a017" />
+
+Después añadimos reglas a snort:
+
+<img width="900" height="289" alt="2026-02-20 18_44_25-Parsec" src="https://github.com/user-attachments/assets/bf32e0f9-f9b8-4188-bdcb-4810dd272270" />
+
+Y hacemos una comprobación de configuración:
+
+<img width="892" height="754" alt="2026-02-20 18_45_07-Parsec" src="https://github.com/user-attachments/assets/3b991a09-6ef7-4eb6-b6f4-c6157890c5b5" />
+
+
+
+### Test de conexión
+
+Desde el contenedor de Kali le leanzamos un ping al contenedor de filebeat dentro de la misma red Docker para generar tráfico ICMP y comprobar si snort genera la alerta, y snort nos muestra un: 
+
+```
+02/20-19:05:20.123145 [] [1:30000001:0] !Tráfico ICMP! [] [Priority: 0] {ICMP} 172.20.0.1 -> 172.20.0.2
+
 ```
 
-El resto de dependencias se van añadiendo conforme `configure` y `make` van mostrando errores.
+Por lo que sabemos que funciona.
 
-### 6.3 Descarga del código fuente (DAQ + Snort)
+## Hydra
 
-```bash
-cd /opt/snort_src
-wget https://www.snort.org/downloads/snort/daq-2.0.7.tar.gz
-wget https://www.snort.org/downloads/snort/snort-2.9.20.tar.gz
-tar -xzf daq-2.0.7.tar.gz
-tar -xzf snort-2.9.20.tar.gz
-```
+Por desgracia, llegados a este punto, no pude continuar con la práctica. Los ataques desde Hydra no se conectan con mis contenedores de ELK y Filebeat. Las soluciones probadas fueron:
+ - Cambiar de Kali en WSL a máquina virtual en virtualbox
+ - Cambiar de Kali en virtualbox a Kali en docker.
 
-### 6.4 Compilación e instalación de DAQ
+Me aseguré de que Kali podía hacer pink a sus máquinas hermanas:
+<img width="890" height="568" alt="2026-02-20 21_03_51-Parsec" src="https://github.com/user-attachments/assets/e66de493-4cc8-47f0-aef2-f44ea018fe52" />
 
-```bash
-cd /opt/snort_src/daq-2.0.7
-./configure
-make
-make install
-ldconfig
-```
+Intenté en numerosas ocasiones lanzar los scripts después de rellenarlos con los comandos proporcionados por el profesor:
+<img width="376" height="450" alt="2026-02-20 21_40_17-Parsec" src="https://github.com/user-attachments/assets/83ad3077-ddc7-4229-afb3-3f2182f2a075" />
 
-DAQ actúa como capa de captura de paquetes que Snort 2.9.x utiliza por debajo.
+Sin éxito. Con esto, y dadas mis condiciones de salud en el momento, me temo que no hay más que pueda hacer, pero consultaré con mis compañeros para entender qué puedo haber hecho mal, y resolveré el error.
 
-### 6.5 Compilación e instalación de Snort
 
-```bash
-cd /opt/snort_src/snort-2.9.20
-./configure --enable-sourcefire --disable-open-appid
-make
-make install
-ldconfig
-```
 
-Se usa `--enable-sourcefire` siguiendo la recomendación oficial, y `--disable-open-appid` para evitar arrastrar dependencias adicionales como LuaJIT en esta PoC.
-
-### 6.6 Verificación
-
-```bash
-snort -V
-which snort
-```
-
-
-
-### 6.7 Errores durante el build y su resolución
-
-#### Error: `Libpcre header not found` / `pcre-config: command not found`
-
-En `./configure` aparece:
-
-```text
-pcre-config: command not found
-checking for pcre.h... no
-ERROR! Libpcre header not found.
-```
-
-En Debian 13 no está disponible `libpcre3-dev`, así que se opta por compilar PCRE 8.45 desde fuente en `/usr/local/pcre` y revisar la versión con:
-
-```bash
-/usr/local/pcre/bin/pcre-config --version  # 8.45
-```
-
-Después se exponen las rutas a `configure`:
-
-```bash
-export PATH="/usr/local/pcre/bin:$PATH"
-export CPPFLAGS="-I/usr/local/pcre/include"
-export LDFLAGS="-L/usr/local/pcre/lib"
-```
-
-#### Error: `LuaJIT library not found` (OpenAppID)
-
-Durante `./configure` se ve:
-
-```text
-checking for luajit... no
-ERROR! LuaJIT library not found ...
-```
-
-La causa es que se intenta compilar con soporte OpenAppID, que requiere LuaJIT. La solución es recompilar desactivando OpenAppID:
-
-```bash
-./configure --enable-sourcefire --disable-open-appid
-```
-
-#### Error: `fatal error: rpc/rpc.h: No such file or directory`
-
-Falló el plugin `sp_rpc_check.c` al hacer `make`:
-
-```text
-fatal error: rpc/rpc.h: No such file or directory
-```
-
-En sistemas recientes se trabaja con TIRPC, por lo que se instala:
-
-```bash
-apt-get install -y libtirpc-dev
-```
-
-Y se fuerza el include y el enlace:
-
-```bash
-export CPPFLAGS="-I/usr/include/tirpc ${CPPFLAGS:-}"
-export LIBS="-ltirpc ${LIBS:-}"
-```
-
-## Problemas de configuración de Snort (`snort.conf`) y ajustes
-
-La validación se hace con:
-
-```bash
-snort -T -c /etc/snort/snort.conf
-```
-
-A partir de aquí van apareciendo errores encadenados, porque el `snort.conf` es genérico y este despliegue concreto no tiene todas las rutas y rulesets que el fichero espera.
-
-### `snort.conf` ausente
-
-Primero, Snort no encuentra el archivo:
-
-```text
-Unable to open rules file "/etc/snort/snort.conf": No such file or directory
-```
-
-Al instalar desde fuente, el binario sí queda en el sistema, pero los ficheros de configuración hay que copiarlos manualmente desde `snort-2.9.20/etc/` a `/etc/snort/`:
-
-```bash
-cp /opt/snort_src/snort-2.9.20/etc/*.conf /etc/snort/
-cp /opt/snort_src/snort-2.9.20/etc/*.map /etc/snort/
-```
-
-## Verificación de Snort en modo consola
-
-### Reglas locales (`local.rules`)
-
-Para probar detección rápida se usan reglas en `/etc/snort/rules/local.rules`:
-
-```bash
-# Regla para detectar un ping (ICMP)
-alert icmp any any -> $HOME_NET any (msg:"!Trafico ICMP!"; sid:3000001;)
-
-# Regla para detectar SSH (con limitación de eventos)
-alert tcp any any -> any 22 (msg:"Acceso SSH"; sid:3000002; flow:established; threshold: type limit, track by_src, count 1, seconds 30;)
-```
-
-La primera sirve como smoke test con un simple ping.  
-La segunda alerta sobre conexiones SSH, limitando el spam con un threshold de una alerta cada 30 segundos por IP origen.
-
-
-
-### Ejecución en modo IDS por consola
-
-```bash
-snort -A console -q -c /etc/snort/snort.conf -i eth0
-```
-
-Parámetros relevantes: salida por consola, modo quiet, carga de `snort.conf` e interfaz `eth0`.
-
-### Tráfico de prueba
-
-Desde Kali se lanza un ping al contenedor `nginx-filebeat` dentro de la misma red Docker para generar tráfico ICMP y comprobar si se dispara la alerta configurada.
-
-### Resultado
-
-Se observa que Snort genera alertas con el mensaje `!Trafico ICMP!` y el SID configurado (`3000001`).
-
-
-
-## Caso de uso: fuerza bruta SSH con Hydra
-
-### Contexto
-
-Para probar el caso de fuerza bruta SSH se utilizan los scripts proporcionados (`crear_claves`, `crear_usuarios` y `lanzar_hydra`) con la idea de automatizar la preparación del entorno y el ataque.
-
-### Preparación con scripts
-
-Orden lógico de ejecución:
-
-- `crear_claves` para generar las credenciales.  
-- `crear_usuarios` para dar de alta los usuarios objetivo.  
-- `lanzar_hydra` para lanzar el ataque SSH.
-
-El objetivo es que Snort genere alertas y se registren en `/var/log/snort/alert` de forma consumible por ELK.
-
-### Primer problema
-
-Aunque Hydra estaba trabajando, las alertas no se registraban como se esperaba.  
-Revisando, se ve que:
-
-- La regla dependía de `flow:established`.  
-- Parte del tráfico no se consideraba “establecido” desde el punto de vista de Snort, por lo que la condición no saltaba.
-
-### Ajustes de la regla y ejecución
-
-Como paso intermedio se flexibiliza la condición (por ejemplo quitando el `established` del `flow`) para ver más intentos, y se modifica la forma de lanzar Snort:
-
-```bash
-snort -A fast -q -c /etc/snort/snort.conf -i eth0 -k none -l /var/log/snort
-```
-
-Puntos clave:
-
-- `-A fast` genera alertas en formato rápido, ideal para ficheros que luego leerá Filebeat.  
-- `-l /var/log/snort` fuerza el directorio para los logs.  
-- `-k none` ignora el checksum, útil en laboratorios con offloading que puede dar lecturas raras. No es una opción recomendable para producción.
-
-Con estos cambios, Snort empieza a volcar alertas SSH de forma consistente a `/var/log/snort/alert`.
-
-  
-
-
-### Directorio de reglas dinámicas inexistente
-
-Error:
-
-```text
-Could not stat dynamic module path "/usr/local/lib/snort_dynamicrules": No such file or directory.
-```
-
-Se soluciona creando el directorio esperado:
-
-```bash
-mkdir -p /usr/local/lib/snort_dynamicrules
-```
-
-### Problemas con `RULE_PATH` y `local.rules`
-
-Error:
-
-```text
-Unable to open rules file "/etc/snort/../rules/local.rules": No such file or directory.
-```
-
-El `RULE_PATH` venía como ruta relativa (`../rules`), lo cual en este contexto manda a `/etc/rules`. Se corrige definiendo una ruta absoluta y ajustando el include:
-
-```bash
-var RULE_PATH /etc/snort/rules
-include $RULE_PATH/local.rules
-```
-
-Y se crea la estructura básica:
-
-```bash
-mkdir -p /etc/snort/rules
-touch /etc/snort/rules/local.rules
-```
-
-### Reglas de OpenAppID/AppID
-
-Error al intentar incluir `app-detect.rules` y otras reglas relacionadas, cuando en realidad Snort se compiló con `--disable-open-appid`.
-
-La solución en esta PoC pasa por comentar las líneas `include` relacionadas con AppID/OpenAppID en `snort.conf`, para que no intente cargar reglas que no existen.
-
-### Reglas por defecto ausentes
-
-`snort.conf` referencia múltiples `.rules` (por ejemplo `attack-responses.rules`) que no se han desplegado porque solo se está usando `local.rules`.
-
-Para esta práctica se opta por dejar activas únicamente las reglas locales y comentar el resto de includes que apuntan a ficheros no presentes.
-
-### Resultado de la validación
-
-Tras los ajustes de rutas, directorios y includes, la validación de Snort termina correctamente.
-
-
-
-## Configuración de Filebeat para Nginx y Snort
-
-### Ficheros a monitorizar
-
-En el contenedor agente interesan estos paths:
-
-- Nginx: `/var/log/nginx/*.log`  
-- Snort (alertas): `/var/log/snort/alert`
-
-Como prerequisito, Snort debe estar corriendo en modo que escriba alertas a fichero:
-
-```bash
-snort -A fast -q -c /etc/snort/snort.conf -i eth0 -k none -l /var/log/snort
-```
-
-Esto hace que el archivo `/var/log/snort/alert` se vaya alimentando con cada alerta generada.
-
-Verificación rápida:
-
-```bash
-ls -lh /var/log/snort/alert
-tail -n 5 /var/log/snort/alert
-```
-
-### Configuración de Filebeat
-
-Se añaden inputs apuntando a los logs reales (Nginx y Snort) para que Filebeat recoja cualquier línea nueva que aparezca. La idea es simple: si un path no está definido en los inputs, Filebeat no lo va a enviar.
-
-
-
-El output se configura hacia Logstash en el puerto Beats habitual (5044):
-
-```yaml
-output.logstash:
-  hosts: ["elk:5044"]
-```
-
-### Ejecución dentro del contenedor
-
-En el contenedor, `service filebeat start` no mantiene el proceso vivo por la ausencia de systemd clásico, así que se opta por ejecutarlo en primer plano.
-
-Comprobaciones:
-
-```bash
-filebeat test config -e
-filebeat test output -e
-```
-
-Ejecución recomendada:
-
-```bash
-filebeat -e
-```
-
-Con esto, Filebeat permanece corriendo y enviando eventos en tiempo real. Las evidencias finales muestran que las alertas tanto de ICMP como de SSH se están enviando correctamente a ELK.
